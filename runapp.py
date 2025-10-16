@@ -214,7 +214,7 @@ if st.session_state.df_enriched is not None:
         topics_for_prompt = ', '.join(unique_topics[:50]) # Limit to 50 unique topics for efficiency
         
         topic_prompt = f"Based on this list of topics extracted from comments, what is the single main subject of discussion? Topics: {topics_for_prompt}"
-        topic_model = genai.GenerativeModel('gemini-1.5-pro-latest')
+        topic_model = genai.GenerativeModel('gemini-2.5-pro')
         try:
             main_topic = topic_model.generate_content(topic_prompt).text.strip()
         except Exception as e:
