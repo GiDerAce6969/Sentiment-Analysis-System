@@ -24,7 +24,8 @@ def analyze_comments_in_batches(df_comments, comment_column, batch_size=100):
     Analyzes comments in batches to optimize token usage.
     It sends one large prompt with multiple comments at a time.
     """
-    model = genai.GenerativeModel('gemini-1.5-pro-latest')
+
+    model = genai.GenerativeModel('gemini-2.5-pro-latest')
     
     all_analyzed_data = []
 
@@ -60,8 +61,6 @@ def analyze_comments_in_batches(df_comments, comment_column, batch_size=100):
     for i in range(0, total_comments, batch_size):
         batch = comments_to_process[i:i + batch_size]
         
-        # Create the dynamic part of the prompt with numbered comments
-        # This structure helps the model keep track of each item
         formatted_batch = "\n".join([f'{i+j}: "{comment}"' for j, comment in enumerate(batch)])
         
         full_prompt = f"{system_prompt}\n\nAnalyze the following batch of comments. Ensure your output array has exactly {len(batch)} objects, one for each comment index from {i} to {i + len(batch) - 1}.\n---\n{formatted_batch}"
@@ -73,7 +72,6 @@ def analyze_comments_in_batches(df_comments, comment_column, batch_size=100):
             cleaned_response = response.text.strip().replace('```json', '').replace('```', '')
             batch_results = json.loads(cleaned_response)
             
-            # Important: Check if the model returned the correct number of results
             if len(batch_results) != len(batch):
                 st.warning(f"Warning: AI returned {len(batch_results)} results for a batch of {len(batch)} comments. Results may be misaligned.")
             
@@ -83,17 +81,12 @@ def analyze_comments_in_batches(df_comments, comment_column, batch_size=100):
             st.error(f"An error occurred during AI analysis for batch starting at index {i}: {e}")
             if 'response' in locals() and hasattr(response, 'text'):
                 st.error(f"Gemini's raw response for the failed batch was: {response.text}")
-            return None # Stop processing on error
+            return None 
 
     try:
-        # Combine original data with analyzed data
         df_analyzed = pd.DataFrame(all_analyzed_data)
-
-        # Merge based on index. Ensure both dataframes have a matching index range.
         df_comments_reset = df_comments.reset_index(drop=True)
-        # We assume the 'comment_index' from AI corresponds to the original dataframe index
         df_final = df_comments_reset.join(df_analyzed.set_index('comment_index'))
-        
         return df_final
     except Exception as e:
         st.error(f"Failed to merge original data with AI results: {e}")
@@ -153,9 +146,7 @@ if 'df_analyzed' in st.session_state:
     
     st.header("📈 Dashboard")
 
-    # The rest of the dashboard code is the same
     total_comments = len(df)
-    # Filter out rows where sentiment_score might be NaN after a partial merge failure
     avg_sentiment = df['sentiment_score'].dropna().mean()
     
     col1, col2 = st.columns(2)
@@ -179,7 +170,6 @@ if 'df_analyzed' in st.session_state:
         st.plotly_chart(fig_lang, use_container_width=True)
         
     st.subheader("Analysis by Topic")
-    # Filter out rows where primary_topic is NaN
     topic_sentiment = df.dropna(subset=['primary_topic']).groupby('primary_topic').agg(
         comment_count=('primary_topic', 'count'),
         avg_sentiment=('sentiment_score', 'mean')
