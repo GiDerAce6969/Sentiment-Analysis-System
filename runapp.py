@@ -22,7 +22,7 @@ except Exception:
 def analyze_comments_in_batches(df_comments, comment_column, batch_size=100):
     # This function remains the same as the previous robust version
     # It uses 'gemini-1.5-pro-latest' for current functionality
-    model = genai.GenerativeModel('gemini-1.5-pro-latest')
+    model = genai.GenerativeModel('gemini-2.5-pro')
     
     all_analyzed_data = []
     system_prompt = """
