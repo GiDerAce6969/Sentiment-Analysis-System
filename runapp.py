@@ -31,7 +31,7 @@ MALAYSIAN_POLITICAL_DICTIONARY = {
 
 # --- STAGE 1: BATCH COMMENT ENRICHMENT ---
 def enrich_comments_with_gemini(df_comments, comment_column, batch_size=100):
-    model = genai.GenerativeModel('gemini-1.5-pro-latest') # Use the available model for now
+    model = genai.GenerativeModel('gemini-2.5-pro') # Use the available model for now
     leader_list = list(MALAYSIAN_POLITICAL_DICTIONARY["leaders"].keys())
     party_list = list(MALAYSIAN_POLITICAL_DICTIONARY["parties"].keys())
     
