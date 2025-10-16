@@ -25,9 +25,12 @@ def analyze_comments_in_batches(df_comments, comment_column, batch_size=100):
     """
     Analyzes comments in batches with robust error handling and retries to ensure completion.
     """
-    # MODIFICATION: Changed the model name to the requested "2.5 Pro" version.
-    # WARNING: This model name is speculative and will not work until Google releases it.
-    # Use 'gemini-1.5-pro-latest' for current functionality.
+    # ==================================================================
+    # === MODEL NAME SET EXACTLY AS REQUESTED ==========================
+    # ==================================================================
+    # WARNING: This 'gemini-2.5-pro' model is speculative and will fail with a
+    # "model not found" error until Google officially releases it.
+    # To make the app functional today, use 'gemini-1.5-pro-latest'.
     model = genai.GenerativeModel('gemini-2.5-pro')
     
     all_analyzed_data = []
@@ -138,7 +141,6 @@ if uploaded_file:
         else:
             df_original = pd.read_excel(uploaded_file)
         st.session_state['df_original'] = df_original
-        # Clear previous analysis results when a new file is uploaded
         st.session_state['df_analyzed'] = None 
     except Exception as e:
         st.error(f"Error reading file: {e}")
@@ -160,8 +162,8 @@ if st.session_state['df_original'] is not None:
     batch_size = st.slider(
         "Comments per API Call (Batch Size)", 
         min_value=10, 
-        max_value=200, 
-        value=100, 
+        max_value=500,      # MODIFIED: Max batch size is now 500
+        value=250,          # MODIFIED: Default value is now 250
         step=10,
         help="Higher values use fewer API calls (cheaper) but may take longer per call. Lower values are faster for smaller datasets but cost more."
     )
@@ -174,7 +176,7 @@ if st.session_state['df_original'] is not None:
         if df_analyzed is not None:
             st.session_state['df_analyzed'] = df_analyzed
             st.success("✅ Analysis complete!")
-            st.rerun() # Rerun the script to display the dashboard immediately
+            st.rerun() 
         else:
             st.error("Analysis failed to complete. Please check the error messages above.")
 
