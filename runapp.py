@@ -28,7 +28,7 @@ def analyze_comments_in_batches(df_comments, comment_column, batch_size=100):
     # MODIFICATION: Changed the model name to the requested "2.5 Pro" version.
     # WARNING: This model name is speculative and will not work until Google releases it.
     # Use 'gemini-1.5-pro-latest' for current functionality.
-    model = genai.GenerativeModel('gemini-2.5-pro-latest')
+    model = genai.GenerativeModel('gemini-2.5-pro')
     
     all_analyzed_data = []
 
