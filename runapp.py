@@ -25,7 +25,7 @@ def analyze_comments_in_batches(df_comments, comment_column, batch_size=100):
     It sends one large prompt with multiple comments at a time.
     """
 
-    model = genai.GenerativeModel('gemini-2.5-pro-latest')
+    model = genai.GenerativeModel('gemini-2.5-pro')
     
     all_analyzed_data = []
 
