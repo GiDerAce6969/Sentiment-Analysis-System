@@ -31,14 +31,7 @@ MALAYSIAN_POLITICAL_DICTIONARY = {
 
 # --- STAGE 1: BATCH COMMENT ENRICHMENT ---
 def enrich_comments_with_gemini(df_comments, comment_column, batch_size=100):
-    # ==================================================================
-    # === MODEL NAME SET EXACTLY AS REQUESTED ==========================
-    # ==================================================================
-    # WARNING: This 'gemini-2.5-pro' model is speculative and will fail with a
-    # "model not found" error until Google officially releases it.
-    # To make the app functional today, use 'gemini-1.5-pro-latest'.
     model = genai.GenerativeModel('gemini-2.5-pro')
-    
     leader_list = list(MALAYSIAN_POLITICAL_DICTIONARY["leaders"].keys())
     party_list = list(MALAYSIAN_POLITICAL_DICTIONARY["parties"].keys())
     
@@ -110,14 +103,12 @@ def enrich_comments_with_gemini(df_comments, comment_column, batch_size=100):
 
 # --- STAGE 2: AGGREGATED ANALYSIS ---
 def generate_ai_summary(df_enriched, main_topic):
-    model = genai.GenerativeModel('gemini-2.5-pro') # Using the specified model
+    model = genai.GenerativeModel('gemini-2.5-pro')
     
-    # Explode the dataframe to have one row per entity mention
     df_entities = df_enriched.explode('mentioned_entities').dropna(subset=['mentioned_entities'])
     leader_mentions = df_entities[df_entities['mentioned_entities'].isin(MALAYSIAN_POLITICAL_DICTIONARY['leaders'].values())]
     party_mentions = df_entities[df_entities['mentioned_entities'].isin(MALAYSIAN_POLITICAL_DICTIONARY['parties'].values())]
 
-    # Calculate statistics to send to the model
     summary_data = {
         "topic_of_analysis": main_topic,
         "total_comments": len(df_enriched),
@@ -127,9 +118,6 @@ def generate_ai_summary(df_enriched, main_topic):
         "party_sentiment_analysis": party_mentions.groupby('mentioned_entities')['sentiment_score'].agg(['mean', 'count']).rename(columns={'mean': 'avg_sentiment', 'count': 'mentions'}).to_dict('index')
     }
 
-    # ==================================================================
-    # === MODIFIED PROMPT FOR DEEPER POLITICAL ANALYSIS ================
-    # ==================================================================
     system_prompt_stage2 = """
     You are an expert Malaysian political data scientist. Your task is to interpret a JSON summary of pre-analyzed comment data and generate a final, human-readable report in Markdown.
 
@@ -205,15 +193,9 @@ with st.sidebar:
         comment_column = st.selectbox("Select the comment column:", options=df_original.columns.tolist())
         datetime_column = st.selectbox("Select the date/timestamp column:", options=[None] + df_original.columns.tolist())
         
-        # ==================================================================
-        # === MODIFIED BATCH SIZE SLIDER ===================================
-        # ==================================================================
         batch_size = st.slider(
             "Comments per API Call (Batch Size)", 
-            min_value=50, 
-            max_value=1000, 
-            value=500, 
-            step=50,
+            min_value=50, max_value=1000, value=500, step=50,
             help="Larger batches reduce API calls and cost but use more memory. Adjust based on performance."
         )
         
@@ -241,7 +223,7 @@ if st.session_state.df_enriched is not None:
         unique_topics = list(set(df['primary_topic'].dropna().tolist()))
         topics_for_prompt = ', '.join(unique_topics[:50])
         topic_prompt = f"Based on this list of topics extracted from comments, what is the single main subject of discussion? Topics: {topics_for_prompt}"
-        topic_model = genai.GenerativeModel('gemini-2.5-pro') # Using the specified model
+        topic_model = genai.GenerativeModel('gemini-2.5-pro')
         try:
             main_topic = topic_model.generate_content(topic_prompt).text.strip()
         except Exception as e:
@@ -249,7 +231,7 @@ if st.session_state.df_enriched is not None:
             main_topic = "Analysis of Uploaded Comments"
         st.subheader(f"Main Topic Determined by AI: **{main_topic}**")
     else:
-        st.warning("Could not determine main topic because 'primary_topic' column was not generated.")
+        st.warning("Could not determine the main topic because the 'primary_topic' column was not generated during AI analysis.")
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Comments", f"{len(df):,}")
@@ -261,22 +243,130 @@ if st.session_state.df_enriched is not None:
     
     st.markdown("---")
     
-    # The rest of the dashboard visualization code remains the same...
-    st.header("Political and Demographic Insights")
-    # ... (Charts for party mentions, leader mentions, race, region) ...
+    # ==================================================================
+    # === FULL DASHBOARD VISUALIZATION CODE ============================
+    # ==================================================================
+    
+    st.header("Dashboard Insights")
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["Sentiment Breakdown", "Topic Analysis", "Political Analysis", "Time Series"])
 
-    # Time Series Analysis
-    if datetime_column and datetime_column in df.columns and not df[datetime_column].isnull().all():
-        st.header("Time Series: Discussion Trend")
-        # ... (Time series chart) ...
+    with tab1:
+        st.subheader("Sentiment & Demographic Distribution")
+        col1, col2 = st.columns(2)
+        with col1:
+            if 'sentiment_label' in df.columns:
+                sentiment_counts = df['sentiment_label'].value_counts()
+                fig = px.pie(sentiment_counts, values=sentiment_counts.values, names=sentiment_counts.index, 
+                             title="Overall Sentiment Distribution", color=sentiment_counts.index,
+                             color_discrete_map={'Positive':'green', 'Negative':'red', 'Neutral':'grey'})
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("Sentiment Label column not found.")
+        with col2:
+            if 'language' in df.columns:
+                lang_counts = df['language'].value_counts()
+                fig = px.bar(lang_counts, x=lang_counts.index, y=lang_counts.values,
+                             title="Language Distribution", labels={'x': 'Language', 'y': 'Comment Count'})
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("Language column not found.")
 
-    # Generate AI summary
+        col1, col2 = st.columns(2)
+        with col1:
+            if 'inferred_race' in df.columns:
+                fig = px.pie(df, names='inferred_race', title="Comment Distribution by Inferred Race")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("Inferred Race column not found.")
+        with col2:
+            if 'inferred_region' in df.columns:
+                fig = px.pie(df, names='inferred_region', title="Comment Distribution by Inferred Region")
+                st.plotly_chart(fig, use_container_width=True)
+
+    with tab2:
+        st.subheader("Top Topics Discussed")
+        if 'primary_topic' in df.columns and 'sentiment_score' in df.columns:
+            topic_sentiment = df.groupby('primary_topic').agg(
+                comment_count=('primary_topic', 'count'),
+                avg_sentiment=('sentiment_score', 'mean')
+            ).sort_values(by='comment_count', ascending=False).reset_index()
+
+            fig = px.bar(topic_sentiment.head(15), x='primary_topic', y='comment_count', color='avg_sentiment',
+                         color_continuous_scale=px.colors.diverging.RdYlGn, range_color=[-1,1],
+                         title="Top 15 Topics by Mention Count (Colored by Average Sentiment)",
+                         labels={'primary_topic': 'Topic', 'comment_count': 'Number of Comments', 'avg_sentiment': 'Avg. Sentiment'})
+            fig.update_layout(xaxis_title="Topic", yaxis_title="Number of Comments")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Primary Topic or Sentiment Score columns not found.")
+
+    with tab3:
+        st.subheader("Political Entity Analysis")
+        if 'mentioned_entities' in df.columns and 'sentiment_score' in df.columns:
+            df_entities = df.explode('mentioned_entities').dropna(subset=['mentioned_entities'])
+            leader_mentions = df_entities[df_entities['mentioned_entities'].isin(MALAYSIAN_POLITICAL_DICTIONARY['leaders'].values())]
+            party_mentions = df_entities[df_entities['mentioned_entities'].isin(MALAYSIAN_POLITICAL_DICTIONARY['parties'].values())]
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if not party_mentions.empty:
+                    party_stats = party_mentions.groupby('mentioned_entities')['sentiment_score'].agg(['count', 'mean']).reset_index()
+                    fig = px.bar(party_stats, x='mentioned_entities', y='count', color='mean',
+                                 color_continuous_scale=px.colors.diverging.RdYlGn, range_color=[-1,1],
+                                 title="Political Party Mentions & Average Sentiment",
+                                 labels={'mentioned_entities': 'Party', 'count': 'Total Mentions', 'mean': 'Avg. Sentiment'})
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No political parties were explicitly mentioned.")
+            with col2:
+                if not leader_mentions.empty:
+                    leader_stats = leader_mentions.groupby('mentioned_entities')['sentiment_score'].agg(['count', 'mean']).reset_index()
+                    fig = px.bar(leader_stats, x='mentioned_entities', y='count', color='mean',
+                                 color_continuous_scale=px.colors.diverging.RdYlGn, range_color=[-1,1],
+                                 title="Political Leader Mentions & Average Sentiment",
+                                 labels={'mentioned_entities': 'Leader', 'count': 'Total Mentions', 'mean': 'Avg. Sentiment'})
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No political leaders were explicitly mentioned.")
+        else:
+            st.warning("Mentioned Entities column not found.")
+
+    with tab4:
+        st.subheader("Time Series Analysis")
+        if datetime_column and datetime_column in df.columns and not df[datetime_column].isnull().all():
+            df_time = df.set_index(datetime_column)
+            
+            # Allow user to select time frequency
+            time_freq = st.selectbox("Select Time Aggregation:", ["Daily (D)", "Weekly (W)", "Monthly (M)"], index=0)
+            freq_code = time_freq.split(" ")[1][1] # Extracts D, W, or M
+            
+            # Resample data
+            volume_over_time = df_time.resample(freq_code).size().to_frame('comment_volume')
+            sentiment_over_time = df_time.resample(freq_code)['sentiment_score'].mean().to_frame('average_sentiment')
+            
+            fig_vol = px.line(volume_over_time, x=volume_over_time.index, y='comment_volume', 
+                              title=f"{time_freq} Discussion Volume for '{main_topic}'", markers=True)
+            fig_vol.update_layout(xaxis_title="Date", yaxis_title="Number of Comments")
+            st.plotly_chart(fig_vol, use_container_width=True)
+            
+            fig_sent = px.line(sentiment_over_time, x=sentiment_over_time.index, y='average_sentiment',
+                               title=f"{time_freq} Average Sentiment for '{main_topic}'", markers=True)
+            fig_sent.update_layout(xaxis_title="Date", yaxis_title="Average Sentiment Score", yaxis=dict(range=[-1,1]))
+            st.plotly_chart(fig_sent, use_container_width=True)
+        else:
+            st.info("No valid date/timestamp column was selected to perform a time series analysis.")
+
     st.markdown("---")
     st.header("Generate AI-Powered Executive Summary")
     if st.button("Generate Summary"):
         with st.spinner("Gemini is crafting the final report..."):
             summary_report = generate_ai_summary(df, main_topic)
             st.markdown(summary_report)
+    
+    st.markdown("---")
+    st.header("Explore Full Enriched Dataset")
+    st.dataframe(df)
 
 else:
     st.info("Awaiting data upload and analysis to begin.")
