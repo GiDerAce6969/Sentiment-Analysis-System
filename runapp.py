@@ -14,18 +14,62 @@ try:
 except Exception:
     st.error("⚠️ Google API Key not found. Please add it to your Streamlit secrets.")
 
-# --- Malaysian Political Dictionary ---
+# --- EXPANDED Malaysian Political Dictionary ---
 MALAYSIAN_POLITICAL_DICTIONARY = {
     "leaders": {
-        "anwar": "Anwar Ibrahim", "pmx": "Anwar Ibrahim", "zahid": "Zahid Hamidi",
-        "hajiji": "Hajiji Noor", "shafie": "Shafie Apdal", "bung moktar": "Bung Moktar Radin",
-        "mahathir": "Mahathir Mohamad", "muhyiddin": "Muhyiddin Yassin", "hadi": "Hadi Awang",
-        "madanon": "Anwar Ibrahim", "lebai": "Hadi Awang"
+        # Pakatan Harapan (PH) & Allies
+        "anwar": "Anwar Ibrahim", "pmx": "Anwar Ibrahim", "madanon": "Anwar Ibrahim",
+        "wan azizah": "Wan Azizah Wan Ismail",
+        "rafizi": "Rafizi Ramli",
+        "anthony loke": "Anthony Loke Siew Fook",
+        "gobind": "Gobind Singh Deo",
+        "lim guan eng": "Lim Guan Eng", "lce": "Lim Guan Eng", "guan eng": "Lim Guan Eng",
+        "mat sabu": "Mohamad Sabu",
+        
+        # Barisan Nasional (BN)
+        "zahid": "Ahmad Zahid Hamidi", "zahid komedi": "Ahmad Zahid Hamidi",
+        "tok mat": "Mohamad Hasan",
+        "ismail sabri": "Ismail Sabri Yaakob",
+        "wee ka siong": "Wee Ka Siong",
+
+        # Perikatan Nasional (PN)
+        "muhyiddin": "Muhyiddin Yassin", "my": "Muhyiddin Yassin", "abah": "Muhyiddin Yassin",
+        "hadi": "Hadi Awang", "lebai": "Hadi Awang",
+        "azmin ali": "Azmin Ali",
+        "hamzah": "Hamzah Zainudin",
+        "sanusi": "Muhammad Sanusi Md Nor",
+
+        # Gabungan Rakyat Sabah (GRS) & Sarawak (GPS)
+        "hajiji": "Hajiji Noor",
+        "jeffrey kitingan": "Jeffrey Kitingan",
+        "abang jo": "Abang Johari Openg",
+        
+        # Other Key Figures
+        "shafie": "Shafie Apdal",
+        "mahathir": "Mahathir Mohamad", "tun m": "Mahathir Mohamad",
+        "syed saddiq": "Syed Saddiq Syed Abdul Rahman",
+        "najib": "Najib Razak", "bossku": "Najib Razak"
     },
     "parties": {
-        "ph": "Pakatan Harapan", "bn": "Barisan Nasional", "umno": "UMNO",
-        "pn": "Perikatan Nasional", "pas": "PAS", "grs": "Gabungan Rakyat Sabah",
-        "warisan": "Parti Warisan Sabah", "dap": "DAP"
+        # Main Coalitions
+        "ph": "Pakatan Harapan",
+        "bn": "Barisan Nasional",
+        "pn": "Perikatan Nasional",
+        "grs": "Gabungan Rakyat Sabah",
+        "gps": "Gabungan Parti Sarawak",
+
+        # Component Parties
+        "pkr": "Parti Keadilan Rakyat (PKR)",
+        "dap": "DAP",
+        "amanah": "Parti Amanah Negara (Amanah)",
+        "umno": "UMNO",
+        "mca": "MCA",
+        "mic": "MIC",
+        "pas": "PAS",
+        "bersatu": "Parti Pribumi Bersatu Malaysia (Bersatu)",
+        "gerakan": "Parti Gerakan Rakyat Malaysia (Gerakan)",
+        "warisan": "Parti Warisan Sabah (Warisan)",
+        "muda": "MUDA"
     }
 }
 
@@ -174,20 +218,31 @@ if 'df_enriched' not in st.session_state:
 
 with st.sidebar:
     st.header("1. Upload Data")
-    uploaded_file = st.file_uploader("Upload CSV or Excel file", type=['csv', 'xlsx', 'xls'])
     
-    if uploaded_file:
-        try:
-            if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file)
-            else:
-                df = pd.read_excel(uploaded_file)
-            st.session_state.df_original = df
-            st.success(f"Loaded {len(df)} comments.")
-        except Exception as e:
-            st.error(f"Error reading file: {e}")
+    uploaded_files = st.file_uploader(
+        "Upload one or more CSV or Excel files",
+        type=['csv', 'xlsx', 'xls'],
+        accept_multiple_files=True
+    )
+    
+    if uploaded_files:
+        df_list = []
+        for file in uploaded_files:
+            try:
+                if file.name.endswith('.csv'):
+                    df_temp = pd.read_csv(file)
+                else:
+                    df_temp = pd.read_excel(file)
+                df_list.append(df_temp)
+            except Exception as e:
+                st.error(f"Error reading file '{file.name}': {e}")
+        
+        if df_list:
+            df_original = pd.concat(df_list, ignore_index=True)
+            st.session_state.df_original = df_original
+            st.success(f"Loaded and combined {len(uploaded_files)} file(s) with a total of {len(df_original)} comments.")
 
-    if 'df_original' in st.session_state:
+    if 'df_original' in st.session_state and st.session_state.df_original is not None:
         df_original = st.session_state.df_original
         st.header("2. Configure Analysis")
         comment_column = st.selectbox("Select the comment column:", options=df_original.columns.tolist())
@@ -243,10 +298,6 @@ if st.session_state.df_enriched is not None:
     
     st.markdown("---")
     
-    # ==================================================================
-    # === FULL DASHBOARD VISUALIZATION CODE ============================
-    # ==================================================================
-    
     st.header("Dashboard Insights")
     
     tab1, tab2, tab3, tab4 = st.tabs(["Sentiment Breakdown", "Topic Analysis", "Political Analysis", "Time Series"])
@@ -259,7 +310,7 @@ if st.session_state.df_enriched is not None:
                 sentiment_counts = df['sentiment_label'].value_counts()
                 fig = px.pie(sentiment_counts, values=sentiment_counts.values, names=sentiment_counts.index, 
                              title="Overall Sentiment Distribution", color=sentiment_counts.index,
-                             color_discrete_map={'Positive':'green', 'Negative':'red', 'Neutral':'grey'})
+                             color_discrete_map={'Positive':'#00CC96', 'Negative':'#EF553B', 'Neutral':'#636EFA'})
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("Sentiment Label column not found.")
@@ -275,13 +326,15 @@ if st.session_state.df_enriched is not None:
         col1, col2 = st.columns(2)
         with col1:
             if 'inferred_race' in df.columns:
-                fig = px.pie(df, names='inferred_race', title="Comment Distribution by Inferred Race")
+                race_counts = df['inferred_race'].value_counts()
+                fig = px.pie(race_counts, names=race_counts.index, values=race_counts.values, title="Comment Distribution by Inferred Race")
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("Inferred Race column not found.")
         with col2:
             if 'inferred_region' in df.columns:
-                fig = px.pie(df, names='inferred_region', title="Comment Distribution by Inferred Region")
+                region_counts = df['inferred_region'].value_counts()
+                fig = px.pie(region_counts, names=region_counts.index, values=region_counts.values, title="Comment Distribution by Inferred Region")
                 st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
@@ -312,7 +365,8 @@ if st.session_state.df_enriched is not None:
             with col1:
                 if not party_mentions.empty:
                     party_stats = party_mentions.groupby('mentioned_entities')['sentiment_score'].agg(['count', 'mean']).reset_index()
-                    fig = px.bar(party_stats, x='mentioned_entities', y='count', color='mean',
+                    fig = px.bar(party_stats.sort_values('count', ascending=False), 
+                                 x='mentioned_entities', y='count', color='mean',
                                  color_continuous_scale=px.colors.diverging.RdYlGn, range_color=[-1,1],
                                  title="Political Party Mentions & Average Sentiment",
                                  labels={'mentioned_entities': 'Party', 'count': 'Total Mentions', 'mean': 'Avg. Sentiment'})
@@ -322,7 +376,8 @@ if st.session_state.df_enriched is not None:
             with col2:
                 if not leader_mentions.empty:
                     leader_stats = leader_mentions.groupby('mentioned_entities')['sentiment_score'].agg(['count', 'mean']).reset_index()
-                    fig = px.bar(leader_stats, x='mentioned_entities', y='count', color='mean',
+                    fig = px.bar(leader_stats.sort_values('count', ascending=False), 
+                                 x='mentioned_entities', y='count', color='mean',
                                  color_continuous_scale=px.colors.diverging.RdYlGn, range_color=[-1,1],
                                  title="Political Leader Mentions & Average Sentiment",
                                  labels={'mentioned_entities': 'Leader', 'count': 'Total Mentions', 'mean': 'Avg. Sentiment'})
@@ -337,11 +392,9 @@ if st.session_state.df_enriched is not None:
         if datetime_column and datetime_column in df.columns and not df[datetime_column].isnull().all():
             df_time = df.set_index(datetime_column)
             
-            # Allow user to select time frequency
             time_freq = st.selectbox("Select Time Aggregation:", ["Daily (D)", "Weekly (W)", "Monthly (M)"], index=0)
-            freq_code = time_freq.split(" ")[1][1] # Extracts D, W, or M
+            freq_code = time_freq.split(" ")[1][1] 
             
-            # Resample data
             volume_over_time = df_time.resample(freq_code).size().to_frame('comment_volume')
             sentiment_over_time = df_time.resample(freq_code)['sentiment_score'].mean().to_frame('average_sentiment')
             
