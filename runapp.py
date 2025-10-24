@@ -282,12 +282,13 @@ if st.session_state.df_enriched is not None:
         else:
             st.warning("Mentioned Entities column not found for Political Analysis.")
 
-    with tab4:
+with tab4:
         st.subheader("Temporal Analysis: Trends, Events, and Anomalies")
         
         if datetime_column and datetime_column in df.columns and pd.api.types.is_datetime64_any_dtype(df[datetime_column]):
             df_time = df.set_index(datetime_column).sort_index()
             
+            # --- ANOMALY DETECTION (Unchanged) ---
             st.markdown("#### Real-Time Trend Detection (Volume Spikes)")
             daily_volume = df_time.resample('D').size().to_frame('comment_volume')
             volume_mean = daily_volume['comment_volume'].mean()
@@ -305,12 +306,13 @@ if st.session_state.df_enriched is not None:
                 st.write("Potential Key Event Dates (High Volume):")
                 st.dataframe(anomalous_days)
 
+            # --- EVENT IMPACT TRACKING (WITH PLOTLY FIX) ---
             st.markdown("---")
             st.markdown("#### Event Impact Tracking")
             st.write("Select a date to analyze how an event impacted sentiment.")
 
             available_dates = sorted(df_time.index.normalize().unique())
-            event_date = st.selectbox(
+            event_date_selection = st.selectbox(
                 "Select an Event Date to Analyze:",
                 options=available_dates,
                 index=len(available_dates)//2,
@@ -318,19 +320,19 @@ if st.session_state.df_enriched is not None:
             )
             days_window = st.slider("Select Time Window (in days) before/after event:", 1, 30, 7)
             
-            if event_date:
-                event_dt = event_date
+            if event_date_selection:
+                event_dt = event_date_selection 
                 
                 start_of_before_period = event_dt - pd.Timedelta(days=days_window)
-                end_of_before_period = event_dt - pd.Timedelta(days=1)
+                end_of_before_period = event_dt - pd.Timedelta(seconds=1)
                 start_of_after_period = event_dt
                 end_of_after_period = event_dt + pd.Timedelta(days=days_window)
 
                 before_period = df_time[start_of_before_period : end_of_before_period]
                 after_period = df_time[start_of_after_period : end_of_after_period]
                 
-                sentiment_before = before_period['sentiment_score'].mean() if not before_period.empty else 0
-                sentiment_after = after_period['sentiment_score'].mean() if not after_period.empty else 0
+                sentiment_before = before_period['overall_sentiment_score'].mean() if not before_period.empty else 0
+                sentiment_after = after_period['overall_sentiment_score'].mean() if not after_period.empty else 0
                 
                 col1, col2 = st.columns(2)
                 col1.metric(f"{days_window}-Day Avg. Sentiment BEFORE Event", f"{sentiment_before:.3f}")
@@ -339,12 +341,18 @@ if st.session_state.df_enriched is not None:
                 combined_period_df = pd.concat([before_period, after_period])
 
                 if not combined_period_df.empty:
-                    sentiment_shift_df = combined_period_df.resample('D')['sentiment_score'].mean().to_frame('average_sentiment')
-                    fig_impact = px.line(sentiment_shift_df, x=sentiment_shift_df.index, y='average_sentiment',
-                                         title=f"Sentiment Shift Around {event_date.strftime('%Y-%m-%d')}", markers=True)
+                    sentiment_shift_df = combined_period_df.resample('D')['overall_sentiment_score'].mean().to_frame('average_sentiment')
                     
+                    fig_impact = px.line(sentiment_shift_df, x=sentiment_shift_df.index, y='average_sentiment',
+                                         title=f"Sentiment Shift Around {event_date_selection.strftime('%Y-%m-%d')}", markers=True)
+                    
+                    # ==================================================================
+                    # === THE FIX IS HERE ==============================================
+                    # ==================================================================
+                    # Convert the Pandas Timestamp to a standard Python datetime object for Plotly
                     event_dt_for_plotly = event_dt.to_pydatetime()
                     fig_impact.add_vline(x=event_dt_for_plotly, line_width=3, line_dash="dash", line_color="red", annotation_text="Event Date")
+                    # ==================================================================
                     
                     fig_impact.update_layout(yaxis=dict(range=[-1,1]))
                     st.plotly_chart(fig_impact, use_container_width=True)
