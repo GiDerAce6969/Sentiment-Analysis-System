@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-# Use your specified import structure
-from google import generativeai as genai
-from google.generativeai import types
+import google.generativeai as genai
 import json
 import time
 import os
@@ -19,7 +17,7 @@ api_key_loaded = False
 try:
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        api_key = st.secrets["GOOGLE_API_KEY"]
+        api_key = st.secrets.get("GOOGLE_API_KEY")
     if api_key:
         genai.configure(api_key=api_key)
         api_key_loaded = True
@@ -45,9 +43,10 @@ MALAYSIAN_POLITICAL_DICTIONARY = {
     },
     "parties": {
         "ph": "Pakatan Harapan", "bn": "Barisan Nasional", "pn": "Perikatan Nasional",
-        "grs": "Gabungan Rakyat Sabah", "gps": "Gabungan Parti Sarawak", "pkr": "Parti Keadilan Rakyat (PKR)",
-        "dap": "DAP", "amanah": "Parti Amanah Negara (Amanah)", "umno": "UMNO", "mca": "MCA",
-        "mic": "MIC", "pas": "PAS", "bersatu": "Parti Pribumi Bersatu Malaysia (Bersatu)",
+        "grs": "Gabungan Rakyat Sabah", "gps": "Gabungan Parti Sarawak",
+        "pkr": "Parti Keadilan Rakyat (PKR)", "dap": "DAP", "amanah": "Parti Amanah Negara (Amanah)",
+        "umno": "UMNO", "mca": "MCA", "mic": "MIC",
+        "pas": "PAS", "bersatu": "Parti Pribumi Bersatu Malaysia (Bersatu)",
         "gerakan": "Parti Gerakan Rakyat Malaysia (Gerakan)", "warisan": "Parti Warisan Sabah (Warisan)", "muda": "MUDA"
     }
 }
@@ -59,13 +58,14 @@ def enrich_comments_with_gemini(df_comments, comment_column, batch_size=100):
     party_list = list(MALAYSIAN_POLITICAL_DICTIONARY["parties"].keys())
     
     system_prompt_stage1 = f"""
-    You are a high-performance AI data enrichment service. Your task is to receive a batch of raw user comments and transform EACH one into a structured JSON object. Your final output MUST be an array of these JSON objects.
+    You are a high-performance AI data enrichment service. Your task is to receive a batch of raw user comments and transform EACH one into a structured JSON object. Your analysis assumes the comments are within the context of Trending Malaysian News and Social Topics. Your final output MUST be an array of these JSON objects.
 
     OUTPUT STRUCTURE FOR EACH COMMENT:
     {{
       "comment_index": <integer>,
       "language": "<string>",
       "overall_sentiment_score": <float, from -1.0 to 1.0>,
+      "primary_topic": "<string>",
       "inferred_region": "<string, 'Peninsular', 'Borneo', or 'Unknown'>",
       "inferred_race": "<string, e.g., 'Malay', 'Chinese', 'Indian', 'Other/Unknown'>",
       "mentioned_entities": [
@@ -79,8 +79,9 @@ def enrich_comments_with_gemini(df_comments, comment_column, batch_size=100):
     YOUR ANALYSIS LOGIC FOR EACH INDIVIDUAL COMMENT:
     1. Language Identification.
     2. Overall Sentiment Scoring (float score for the whole comment).
-    3. Demographic Inference (Regional and Racial, be cautious).
-    4. Strict Entity Recognition and Aspect-Based Sentiment:
+    3. Topic Identification (dynamically identify the main subject).
+    4. Demographic Inference (Regional and Racial, be cautious).
+    5. Strict Entity Recognition and Aspect-Based Sentiment:
        - Scan for explicit mentions of entities. Map slang/acronyms to their proper names. Leaders List: {leader_list}. Parties List: {party_list}.
        - For EACH entity found, determine the specific sentiment towards THAT entity within the comment and assign it an 'entity_sentiment_score'.
        - If no entities are found, return an empty array `[]` for 'mentioned_entities'.
@@ -137,9 +138,7 @@ if 'df_enriched' not in st.session_state:
 with st.sidebar:
     st.header("1. Upload Data")
     uploaded_files = st.file_uploader(
-        "Upload one or more CSV or Excel files",
-        type=['csv', 'xlsx', 'xls'],
-        accept_multiple_files=True
+        "Upload one or more CSV or Excel files", type=['csv', 'xlsx'], accept_multiple_files=True
     )
     
     if uploaded_files:
@@ -156,24 +155,21 @@ with st.sidebar:
     if 'df_original' in st.session_state and st.session_state.df_original is not None:
         df_original = st.session_state.df_original
         st.header("2. Configure Analysis")
-        comment_column = st.selectbox("Select the comment column:", options=df_original.columns.tolist())
-        datetime_column = st.selectbox("Select the date/timestamp column:", options=[None] + df_original.columns.tolist())
-        
-        batch_size = st.slider(
-            "Comments per API Call (Batch Size)", 
-            min_value=50, max_value=1000, value=500, step=50,
-            help="Larger batches reduce API calls and cost but use more memory."
-        )
+        comment_column = st.selectbox("Select comment column:", options=df_original.columns.tolist())
+        datetime_column = st.selectbox("Select date/timestamp column:", options=[None] + df_original.columns.tolist())
+        batch_size = st.slider("Batch Size", 50, 1000, 500, 50)
         
         if st.button("Start Full Analysis", type="primary"):
-            if not api_key_loaded: st.error("Cannot start: Google API Key is not configured.")
+            if not api_key_loaded: st.error("Cannot start: API Key not configured.")
             else:
                 st.session_state.df_enriched = None
                 with st.spinner("Stage 1: Enriching all comments with AI..."):
                     enriched_data = enrich_comments_with_gemini(df_original, comment_column, batch_size)
                 if enriched_data is not None:
+                    if datetime_column and datetime_column in enriched_data.columns:
+                        enriched_data[datetime_column] = pd.to_datetime(enriched_data[datetime_column], errors='coerce', utc=True)
                     st.session_state.df_enriched = enriched_data
-                    st.success("Enrichment complete! Dashboard is ready.")
+                    st.success("Enrichment complete!")
                     st.rerun()
                 else: st.error("Enrichment failed.")
 
@@ -181,28 +177,12 @@ with st.sidebar:
 if 'df_enriched' in st.session_state and st.session_state.df_enriched is not None:
     df = st.session_state.df_enriched
 
-    with st.sidebar:
-        st.header("3. Dashboard Filters")
-        sentiment_options = ['Positive', 'Negative', 'Neutral']
-        selected_sentiments = st.multiselect("Filter by Sentiment:", options=sentiment_options, default=sentiment_options)
-        language_options = df['language'].dropna().unique()
-        selected_languages = st.multiselect("Filter by Language:", options=language_options, default=language_options)
-        race_options = df['inferred_race'].dropna().unique()
-        selected_races = st.multiselect("Filter by Inferred Race:", options=race_options, default=race_options)
-
-        df_filtered = df[
-            df['sentiment_label'].isin(selected_sentiments) &
-            df['language'].isin(selected_languages) &
-            df['inferred_race'].isin(selected_races)
-        ]
-        st.info(f"Displaying {len(df_filtered)} of {len(df)} comments.")
-
-    st.header("High-Level Summary of Filtered Data")
+    st.header("High-Level Summary")
     
     col1, col2, col3 = st.columns(3)
-    col1.metric("Filtered Comments", f"{len(df_filtered):,}")
-    if 'overall_sentiment_score' in df_filtered.columns and not df_filtered['overall_sentiment_score'].isnull().all():
-        avg_sentiment = df_filtered['overall_sentiment_score'].mean()
+    col1.metric("Total Comments Analyzed", f"{len(df):,}")
+    if 'overall_sentiment_score' in df.columns and not df['overall_sentiment_score'].isnull().all():
+        avg_sentiment = df['overall_sentiment_score'].mean()
         col2.metric("Average Sentiment", f"{avg_sentiment:.2f}")
         sentiment_label = "Positive" if avg_sentiment > 0.2 else "Negative" if avg_sentiment < -0.2 else "Neutral"
         col3.metric("Overall Sentiment", sentiment_label)
@@ -210,36 +190,41 @@ if 'df_enriched' in st.session_state and st.session_state.df_enriched is not Non
     st.markdown("---")
     st.header("Detailed Analysis Dashboard")
     
-    tab1, tab2, tab3 = st.tabs(["📊 Sentiment Breakdown", "🏛️ Political Analysis", "💡 Strategic Analysis"])
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 Sentiment & Demographics", 
+        "🏛️ Political Analysis", 
+        "💡 Topic-Entity Cross-Analysis",
+        "📈 Temporal Analysis"
+    ])
 
     with tab1:
         st.subheader("Sentiment & Demographic Distribution")
         col1, col2 = st.columns(2)
         with col1:
-            sentiment_counts = df_filtered['sentiment_label'].value_counts()
+            sentiment_counts = df['sentiment_label'].value_counts()
             fig = px.pie(sentiment_counts, values=sentiment_counts.values, names=sentiment_counts.index, 
                          title="Overall Sentiment Distribution", color=sentiment_counts.index,
                          color_discrete_map={'Positive':'#00CC96', 'Negative':'#EF553B', 'Neutral':'#636EFA'})
             st.plotly_chart(fig, use_container_width=True)
         with col2:
-            lang_counts = df_filtered['language'].value_counts()
+            lang_counts = df['language'].value_counts()
             fig = px.bar(lang_counts, x=lang_counts.index, y=lang_counts.values,
                          title="Language Distribution", labels={'x': 'Language', 'y': 'Comment Count'})
             st.plotly_chart(fig, use_container_width=True)
         col1, col2 = st.columns(2)
         with col1:
-            race_counts = df_filtered['inferred_race'].value_counts()
+            race_counts = df['inferred_race'].value_counts()
             fig = px.pie(race_counts, names=race_counts.index, values=race_counts.values, title="Comment Distribution by Inferred Race")
             st.plotly_chart(fig, use_container_width=True)
         with col2:
-            region_counts = df_filtered['inferred_region'].value_counts()
+            region_counts = df['inferred_region'].value_counts()
             fig = px.pie(region_counts, names=region_counts.index, values=region_counts.values, title="Comment Distribution by Inferred Region")
             st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
         st.subheader("Political Entity Analysis (Aspect-Based)")
-        if 'mentioned_entities' in df_filtered.columns:
-            df_entities = df_filtered.explode('mentioned_entities').dropna(subset=['mentioned_entities'])
+        if 'mentioned_entities' in df.columns:
+            df_entities = df.explode('mentioned_entities').dropna(subset=['mentioned_entities'])
             if not df_entities.empty:
                 try:
                     entity_details = pd.json_normalize(df_entities['mentioned_entities'])
@@ -259,7 +244,7 @@ if 'df_enriched' in st.session_state and st.session_state.df_enriched is not Non
                             st.plotly_chart(fig, use_container_width=True)
                             with st.expander("🔍 Show Comments Mentioning Parties"):
                                 st.dataframe(party_mentions)
-                        else: st.info("No political parties explicitly mentioned in filtered data.")
+                        else: st.info("No political parties were mentioned.")
                     with col2:
                         if not leader_mentions.empty:
                             leader_stats = leader_mentions.groupby('entity_name')['entity_sentiment_score'].agg(['count', 'mean']).reset_index()
@@ -269,75 +254,82 @@ if 'df_enriched' in st.session_state and st.session_state.df_enriched is not Non
                             st.plotly_chart(fig, use_container_width=True)
                             with st.expander("🔍 Show Comments Mentioning Leaders"):
                                 st.dataframe(leader_mentions)
-                        else: st.info("No political leaders explicitly mentioned in filtered data.")
+                        else: st.info("No political leaders were mentioned.")
                 except Exception as e:
-                    st.warning(f"Could not process entity data. The AI may have returned an unexpected format. Error: {e}")
-            else: st.info("No entities were mentioned in the filtered data.")
+                    st.warning(f"Could not process entity data. Error: {e}")
+            else: st.info("No entities were mentioned.")
         else: st.warning("Mentioned Entities column not found.")
-    
-    # ==================================================================
-    # === NEW STRATEGIC ANALYSIS TAB (REPLACES TEMPORAL ANALYSIS) ======
-    # ==================================================================
+        
     with tab3:
-        st.subheader("Strategic Analysis: Share of Voice vs. Sentiment")
-        st.write("This chart plots political entities based on how much they are discussed (Share of Voice) versus how positively or negatively they are perceived (Sentiment).")
+        st.subheader("Topic-Entity Cross-Analysis Heatmap")
+        st.write("This heatmap shows the average sentiment for a political entity when mentioned in the context of a specific topic.")
 
-        if 'mentioned_entities' in df_filtered.columns:
-            df_entities_strat = df_filtered.explode('mentioned_entities').dropna(subset=['mentioned_entities'])
-            if not df_entities_strat.empty:
+        if 'primary_topic' in df.columns and 'mentioned_entities' in df.columns:
+            df_cross = df.explode('mentioned_entities').dropna(subset=['mentioned_entities', 'primary_topic'])
+
+            if not df_cross.empty:
                 try:
-                    entity_details_strat = pd.json_normalize(df_entities_strat['mentioned_entities'])
-                    df_entities_strat = df_entities_strat.drop(columns=['mentioned_entities']).reset_index(drop=True)
-                    df_entities_strat = pd.concat([df_entities_strat, entity_details_strat], axis=1)
+                    entity_details_cross = pd.json_normalize(df_cross['mentioned_entities'])
+                    df_cross = df_cross.drop(columns=['mentioned_entities']).reset_index(drop=True)
+                    df_cross = pd.concat([df_cross, entity_details_cross], axis=1)
 
-                    # Calculate stats
-                    entity_stats = df_entities_strat.groupby('entity_name').agg(
-                        avg_sentiment=('entity_sentiment_score', 'mean'),
-                        mention_count=('entity_name', 'count')
-                    ).reset_index()
+                    top_topics = df_cross['primary_topic'].value_counts().nlargest(10).index
+                    top_entities = df_cross['entity_name'].value_counts().nlargest(10).index
 
-                    total_mentions = entity_stats['mention_count'].sum()
-                    entity_stats['share_of_voice'] = (entity_stats['mention_count'] / total_mentions) * 100
+                    df_heatmap = df_cross[
+                        df_cross['primary_topic'].isin(top_topics) &
+                        df_cross['entity_name'].isin(top_entities)
+                    ]
 
-                    # Create the bubble chart
-                    fig = px.scatter(
-                        entity_stats,
-                        x='avg_sentiment',
-                        y='share_of_voice',
-                        size='mention_count',
-                        color='entity_name',
-                        hover_name='entity_name',
-                        hover_data={'share_of_voice': ':.2f}%', 'avg_sentiment': ':.2f', 'mention_count': True},
-                        title="Share of Voice vs. Sentiment Matrix",
-                        labels={
-                            "avg_sentiment": "Average Sentiment Score",
-                            "share_of_voice": "Share of Voice (%)"
-                        }
+                    pivot_table = df_heatmap.pivot_table(
+                        index='entity_name', columns='primary_topic', values='entity_sentiment_score', aggfunc='mean'
                     )
 
-                    # Add quadrant lines
-                    avg_sov = entity_stats['share_of_voice'].mean()
-                    fig.add_vline(x=0, line_width=1, line_dash="dash", line_color="grey")
-                    fig.add_hline(y=avg_sov, line_width=1, line_dash="dash", line_color="grey")
-
-                    # Add quadrant labels
-                    fig.add_annotation(x=0.5, y=avg_sov*1.5, text="Stars (High SOV, High Sentiment)", showarrow=False, yshift=10)
-                    fig.add_annotation(x=-0.5, y=avg_sov*1.5, text="Problem Children (High SOV, Low Sentiment)", showarrow=False, yshift=10)
-                    fig.add_annotation(x=0.5, y=avg_sov/2, text="Rising Stars (Low SOV, High Sentiment)", showarrow=False, yshift=10)
-                    fig.add_annotation(x=-0.5, y=avg_sov/2, text="Niche Issues (Low SOV, Low Sentiment)", showarrow=False, yshift=10)
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-
+                    if not pivot_table.empty:
+                        fig = px.imshow(
+                            pivot_table, text_auto=".2f", aspect="auto",
+                            color_continuous_scale=px.colors.diverging.RdYlGn, range_color=[-1, 1],
+                            labels=dict(x="Primary Topic", y="Mentioned Entity", color="Avg. Sentiment"),
+                            title="Heatmap of Sentiment at the Intersection of Topics and Entities"
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                        with st.expander("🔍 Show Cross-Analysis Data"):
+                            st.dataframe(pivot_table)
+                    else:
+                        st.info("Not enough overlapping data between top topics and entities to generate a heatmap.")
                 except Exception as e:
-                    st.warning(f"Could not generate strategic chart. Error: {e}")
+                    st.warning(f"Could not generate heatmap. Error: {e}")
             else:
-                st.info("No entities were mentioned to create a strategic analysis.")
+                st.info("No comments with both a topic and a mentioned entity were found.")
         else:
-            st.warning("Mentioned Entities column not found.")
+            st.warning("Primary Topic or Mentioned Entities columns not found for Cross-Analysis.")
+
+    with tab4:
+        st.subheader("Temporal Analysis: Trends and Anomalies")
+        if datetime_column and datetime_column in df.columns and pd.api.types.is_datetime64_any_dtype(df[datetime_column]):
+            df_time = df.set_index(datetime_column).sort_index()
+            
+            st.markdown("#### Trend Detection (Volume Spikes)")
+            daily_volume = df_time.resample('D').size().to_frame('comment_volume')
+            volume_mean = daily_volume['comment_volume'].mean()
+            volume_std = daily_volume['comment_volume'].std()
+            anomaly_threshold = volume_mean + (2 * volume_std)
+            anomalous_days = daily_volume[daily_volume['comment_volume'] > anomaly_threshold]
+            fig_anomaly = go.Figure()
+            fig_anomaly.add_trace(go.Scatter(x=daily_volume.index, y=daily_volume['comment_volume'], mode='lines', name='Daily Volume'))
+            fig_anomaly.add_trace(go.Scatter(x=anomalous_days.index, y=anomalous_days['comment_volume'], mode='markers', 
+                                             marker=dict(color='red', size=10, symbol='x'), name='Significant Spike'))
+            fig_anomaly.update_layout(title="Daily Discussion Volume with Anomaly Detection", xaxis_title="Date", yaxis_title="Number of Comments")
+            st.plotly_chart(fig_anomaly, use_container_width=True)
+            if not anomalous_days.empty:
+                st.write("Potential Key Event Dates (High Volume):")
+                st.dataframe(anomalous_days)
+        else:
+            st.info("No valid date/timestamp column was selected to perform Temporal Analysis.")
 
     st.markdown("---")
-    st.header("Explore Full Filtered Dataset")
-    st.dataframe(df_filtered)
+    st.header("Explore Full Enriched Dataset")
+    st.dataframe(df)
 
 else:
     st.info("Awaiting data upload and analysis to begin.")
