@@ -168,7 +168,6 @@ with st.sidebar:
                     enriched_data = enrich_comments_with_gemini(df_original, comment_column, batch_size)
                 if enriched_data is not None:
                     if datetime_column and datetime_column in enriched_data.columns:
-                        # Correctly parse the datetime column, ensuring it's UTC-aware
                         enriched_data[datetime_column] = pd.to_datetime(enriched_data[datetime_column], errors='coerce', utc=True)
                     st.session_state.df_enriched = enriched_data
                     st.success("Enrichment complete! Dashboard is ready.")
@@ -317,15 +316,15 @@ if st.session_state.df_enriched is not None:
             days_window = st.slider("Select Time Window (in days) before/after event:", 1, 30, 7)
             
             if event_date_selection:
-                event_dt = event_date_selection
+                # This is a tz-aware Pandas Timestamp
+                event_dt = event_date_selection 
                 
+                # Slicing tz-aware index with tz-aware timestamps
                 start_of_before_period = event_dt - pd.Timedelta(days=days_window)
                 end_of_before_period = event_dt - pd.Timedelta(seconds=1)
-                start_of_after_period = event_dt
-                end_of_after_period = event_dt + pd.Timedelta(days=days_window)
-
+                
                 before_period = df_time[start_of_before_period : end_of_before_period]
-                after_period = df_time[start_of_after_period : end_of_after_period]
+                after_period = df_time[event_dt : event_dt + pd.Timedelta(days=days_window)]
                 
                 sentiment_before = before_period['sentiment_score'].mean() if not before_period.empty else 0
                 sentiment_after = after_period['sentiment_score'].mean() if not after_period.empty else 0
@@ -337,12 +336,15 @@ if st.session_state.df_enriched is not None:
                 combined_period_df = pd.concat([before_period, after_period])
 
                 if not combined_period_df.empty:
+                    # For plotting, it's safest to convert the index to naive time
                     sentiment_shift_df = combined_period_df.resample('D')['sentiment_score'].mean().to_frame('average_sentiment')
+                    sentiment_shift_df.index = sentiment_shift_df.index.tz_localize(None)
+                    
                     fig_impact = px.line(sentiment_shift_df, x=sentiment_shift_df.index, y='average_sentiment',
                                          title=f"Sentiment Shift Around {event_date_selection.strftime('%Y-%m-%d')}", markers=True)
                     
-                    event_dt_for_plotly = event_dt.to_pydatetime()
-                    fig_impact.add_vline(x=event_dt_for_plotly, line_width=3, line_dash="dash", line_color="red", annotation_text="Event Date")
+                    # Also use a naive datetime for the vline
+                    fig_impact.add_vline(x=event_dt.tz_localize(None), line_width=3, line_dash="dash", line_color="red", annotation_text="Event Date")
                     
                     fig_impact.update_layout(yaxis=dict(range=[-1,1]))
                     st.plotly_chart(fig_impact, use_container_width=True)
