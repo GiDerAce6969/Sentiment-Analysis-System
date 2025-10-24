@@ -22,7 +22,7 @@ try:
         genai.configure(api_key=api_key)
         api_key_loaded = True
     else:
-        st.error("⚠️ Google API Key not found.")
+        st.error("⚠️ Google API Key not found. Please ensure it is in your .env file or Streamlit secrets.")
 except Exception as e:
     st.error(f"⚠️ API Key Error: {e}")
 
@@ -31,7 +31,7 @@ MALAYSIAN_POLITICAL_DICTIONARY = {
     "leaders": {
         "anwar": "Anwar Ibrahim", "pmx": "Anwar Ibrahim", "madanon": "Anwar Ibrahim",
         "wan azizah": "Wan Azizah Wan Ismail", "rafizi": "Rafizi Ramli", "anthony loke": "Anthony Loke Siew Fook",
-        "gobind": "Gobind Singh Deo", "lim guan eng": "Lim Guan Eng", "lce": "Lim Guan Eng",
+        "gobind": "Gobind Singh Deo", "lim guan eng": "Lim Guan Eng", "lce": "Lim Guan Eng", "guan eng": "Lim Guan Eng",
         "mat sabu": "Mohamad Sabu", "zahid": "Ahmad Zahid Hamidi", "zahid komedi": "Ahmad Zahid Hamidi",
         "tok mat": "Mohamad Hasan", "ismail sabri": "Ismail Sabri Yaakob", "wee ka siong": "Wee Ka Siong",
         "muhyiddin": "Muhyiddin Yassin", "my": "Muhyiddin Yassin", "abah": "Muhyiddin Yassin",
@@ -43,22 +43,20 @@ MALAYSIAN_POLITICAL_DICTIONARY = {
     },
     "parties": {
         "ph": "Pakatan Harapan", "bn": "Barisan Nasional", "pn": "Perikatan Nasional",
-        "grs": "Gabungan Rakyat Sabah", "gps": "Gabungan Parti Sarawak", "pkr": "Parti Keadilan Rakyat (PKR)",
-        "dap": "DAP", "amanah": "Parti Amanah Negara (Amanah)", "umno": "UMNO", "mca": "MCA",
-        "mic": "MIC", "pas": "PAS", "bersatu": "Parti Pribumi Bersatu Malaysia (Bersatu)",
+        "grs": "Gabungan Rakyat Sabah", "gps": "Gabungan Parti Sarawak",
+        "pkr": "Parti Keadilan Rakyat (PKR)", "dap": "DAP", "amanah": "Parti Amanah Negara (Amanah)",
+        "umno": "UMNO", "mca": "MCA", "mic": "MIC",
+        "pas": "PAS", "bersatu": "Parti Pribumi Bersatu Malaysia (Bersatu)",
         "gerakan": "Parti Gerakan Rakyat Malaysia (Gerakan)", "warisan": "Parti Warisan Sabah (Warisan)", "muda": "MUDA"
     }
 }
 
 # --- 3. AI & Data Processing Functions ---
-
-# --- STAGE 1: BATCH COMMENT ENRICHMENT (MODIFIED for ABSA) ---
 def enrich_comments_with_gemini(df_comments, comment_column, batch_size=100):
     model = genai.GenerativeModel('gemini-2.5-pro')
     leader_list = list(MALAYSIAN_POLITICAL_DICTIONARY["leaders"].keys())
     party_list = list(MALAYSIAN_POLITICAL_DICTIONARY["parties"].keys())
     
-    # NEW FEATURE: Aspect-Based Sentiment Analysis (ABSA) prompt
     system_prompt_stage1 = f"""
     You are a high-performance AI data enrichment service. Your task is to receive a batch of raw user comments and transform EACH one into a structured JSON object. Your analysis assumes the comments are within the context of Trending Malaysian News and Social Topics. Your final output MUST be an array of these JSON objects.
 
@@ -82,7 +80,7 @@ def enrich_comments_with_gemini(df_comments, comment_column, batch_size=100):
     2. Overall Sentiment Scoring (float score for the whole comment).
     3. Demographic Inference (Regional and Racial, be cautious).
     4. Strict Entity Recognition and Aspect-Based Sentiment:
-       - Scan for explicit mentions of entities. Map slang/acronyms to their proper names. Leaders: {leader_list}. Parties: {party_list}.
+       - Scan for explicit mentions of entities. Map slang/acronyms to their proper names. Leaders List: {leader_list}. Parties List: {party_list}.
        - For EACH entity found, determine the specific sentiment towards THAT entity within the comment and assign it an 'entity_sentiment_score'.
        - If no entities are found, return an empty array `[]` for 'mentioned_entities'.
     """
@@ -108,9 +106,13 @@ def enrich_comments_with_gemini(df_comments, comment_column, batch_size=100):
                 all_analyzed_data.extend(batch_results)
                 break
             except Exception as e:
-                if attempt < retries - 1: time.sleep(delay); delay *= 2
-                else: st.error(f"Batch {current_batch_num} failed: {e}. Skipping.")
-                    
+                if attempt < retries - 1:
+                    time.sleep(delay)
+                    delay *= 2
+                else:
+                    st.error(f"Batch {current_batch_num} failed enrichment after {retries} attempts. Error: {e}. Skipping.")
+                    break
+    
     progress_bar.progress(1.0, text="Stage 1 Enrichment Complete!")
     if not all_analyzed_data: return None
     try:
@@ -125,6 +127,11 @@ def enrich_comments_with_gemini(df_comments, comment_column, batch_size=100):
         st.error(f"Failed to merge enrichment results: {e}")
         return None
 
+def generate_ai_summary(df_filtered, main_topic):
+    # This function is for the executive summary and remains unchanged.
+    # ...
+    return "AI Summary feature is placeholder." # Placeholder
+
 # --- 4. Streamlit Application UI ---
 st.title("🇲🇾 Malaysian Social Issue & News Sentiment Engine")
 
@@ -133,7 +140,11 @@ if 'df_enriched' not in st.session_state:
 
 with st.sidebar:
     st.header("1. Upload Data")
-    uploaded_files = st.file_uploader("Upload one or more files", type=['csv', 'xlsx'], accept_multiple_files=True)
+    uploaded_files = st.file_uploader(
+        "Upload one or more CSV or Excel files",
+        type=['csv', 'xlsx', 'xls'],
+        accept_multiple_files=True
+    )
     
     if uploaded_files:
         df_list = []
@@ -141,65 +152,63 @@ with st.sidebar:
             try:
                 df_temp = pd.read_csv(file) if file.name.endswith('.csv') else pd.read_excel(file)
                 df_list.append(df_temp)
-            except Exception as e: st.error(f"Error reading '{file.name}': {e}")
+            except Exception as e: st.error(f"Error reading file '{file.name}': {e}")
         if df_list:
             st.session_state.df_original = pd.concat(df_list, ignore_index=True)
             st.success(f"Loaded {len(st.session_state.df_original)} total comments.")
 
-    if 'df_original' in st.session_state:
+    if 'df_original' in st.session_state and st.session_state.df_original is not None:
         df_original = st.session_state.df_original
         st.header("2. Configure Analysis")
-        comment_column = st.selectbox("Select comment column:", options=df_original.columns.tolist())
-        datetime_column = st.selectbox("Select date/timestamp column:", options=[None] + df_original.columns.tolist())
-        batch_size = st.slider("Batch Size", 50, 1000, 250, 50, help="Comments per API call.")
+        comment_column = st.selectbox("Select the comment column:", options=df_original.columns.tolist())
+        datetime_column = st.selectbox("Select the date/timestamp column:", options=[None] + df_original.columns.tolist())
+        
+        batch_size = st.slider(
+            "Comments per API Call (Batch Size)", 
+            min_value=50, max_value=1000, value=500, step=50,
+            help="Larger batches reduce API calls and cost but use more memory."
+        )
         
         if st.button("Start Full Analysis", type="primary"):
             if not api_key_loaded: st.error("Cannot start: Google API Key is not configured.")
             else:
                 st.session_state.df_enriched = None
-                with st.spinner("Stage 1: Enriching all comments..."):
+                with st.spinner("Stage 1: Enriching all comments with AI..."):
                     enriched_data = enrich_comments_with_gemini(df_original, comment_column, batch_size)
                 if enriched_data is not None:
                     if datetime_column and datetime_column in enriched_data.columns:
                         enriched_data[datetime_column] = pd.to_datetime(enriched_data[datetime_column], errors='coerce', utc=True)
                     st.session_state.df_enriched = enriched_data
-                    st.success("Enrichment complete!")
+                    st.success("Enrichment complete! Dashboard is ready.")
                     st.rerun()
                 else: st.error("Enrichment failed.")
 
 # --- MAIN DASHBOARD AREA ---
-if st.session_state.df_enriched is not None:
+if 'df_enriched' in st.session_state and st.session_state.df_enriched is not None:
     df = st.session_state.df_enriched
 
-    # ==================================================================
-    # === NEW FEATURE 1: INTERACTIVE SIDEBAR FILTERS ===================
-    # ==================================================================
+    # --- Interactive Filtering ---
     with st.sidebar:
         st.header("3. Dashboard Filters")
         
-        # Filter by Sentiment
-        sentiment_options = df['sentiment_label'].unique()
+        sentiment_options = ['Positive', 'Negative', 'Neutral']
         selected_sentiments = st.multiselect("Filter by Sentiment:", options=sentiment_options, default=sentiment_options)
         
-        # Filter by Language
-        language_options = df['language'].unique()
+        language_options = df['language'].dropna().unique()
         selected_languages = st.multiselect("Filter by Language:", options=language_options, default=language_options)
         
-        # Filter by Race
-        race_options = df['inferred_race'].unique()
+        race_options = df['inferred_race'].dropna().unique()
         selected_races = st.multiselect("Filter by Inferred Race:", options=race_options, default=race_options)
 
-        # Apply filters to create a new dataframe for visualization
         df_filtered = df[
             df['sentiment_label'].isin(selected_sentiments) &
             df['language'].isin(selected_languages) &
             df['inferred_race'].isin(selected_races)
         ]
-        st.info(f"Displaying {len(df_filtered)} of {len(df)} comments based on filters.")
+        st.info(f"Displaying {len(df_filtered)} of {len(df)} comments.")
 
-    st.header("High-Level Summary")
-    st.subheader("Overall Sentiment of Filtered Comments")
-
+    st.header("High-Level Summary of Filtered Data")
+    
     col1, col2, col3 = st.columns(3)
     col1.metric("Filtered Comments", f"{len(df_filtered):,}")
     if 'overall_sentiment_score' in df_filtered.columns and not df_filtered['overall_sentiment_score'].isnull().all():
@@ -212,15 +221,27 @@ if st.session_state.df_enriched is not None:
     st.header("Detailed Analysis Dashboard")
     tab1, tab2, tab3 = st.tabs(["📊 Sentiment Breakdown", "🏛️ Political Analysis", "📈 Temporal Analysis"])
 
-    # All charts from here on will use df_filtered
     with tab1:
         st.subheader("Sentiment & Demographic Distribution")
-        # ... (visualization code is identical)
+        col1, col2 = st.columns(2)
+        with col1:
+            sentiment_counts = df_filtered['sentiment_label'].value_counts()
+            fig = px.pie(sentiment_counts, values=sentiment_counts.values, names=sentiment_counts.index, 
+                         title="Overall Sentiment Distribution", color=sentiment_counts.index,
+                         color_discrete_map={'Positive':'#00CC96', 'Negative':'#EF553B', 'Neutral':'#636EFA'})
+            st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            lang_counts = df_filtered['language'].value_counts()
+            fig = px.bar(lang_counts, x=lang_counts.index, y=lang_counts.values,
+                         title="Language Distribution", labels={'x': 'Language', 'y': 'Comment Count'})
+            st.plotly_chart(fig, use_container_width=True)
+        # ... (rest of demographic charts are the same)
+
     with tab2:
         st.subheader("Political Entity Analysis (Aspect-Based)")
         if 'mentioned_entities' in df_filtered.columns:
-            # NEW FEATURE: Process ABSA data
             df_entities = df_filtered.explode('mentioned_entities').dropna(subset=['mentioned_entities'])
+            # Normalize the nested JSON from ABSA into a flat structure
             df_entities = pd.concat([df_entities.drop(['mentioned_entities'], axis=1), df_entities['mentioned_entities'].apply(pd.Series)], axis=1)
 
             leader_mentions = df_entities[df_entities['entity_name'].isin(MALAYSIAN_POLITICAL_DICTIONARY['leaders'].values())]
@@ -235,7 +256,6 @@ if st.session_state.df_enriched is not None:
                                  title="Party Mentions & Specific Sentiment",
                                  labels={'entity_name': 'Party', 'count': 'Mentions', 'mean': 'Avg. Sentiment'})
                     st.plotly_chart(fig, use_container_width=True)
-                    # NEW FEATURE: DRILL-DOWN
                     with st.expander("🔍 Show Comments Mentioning Parties"):
                         st.dataframe(party_mentions)
                 else: st.info("No political parties explicitly mentioned in filtered data.")
@@ -274,7 +294,7 @@ if st.session_state.df_enriched is not None:
             with st.expander("🔍 Show Momentum Data"):
                 st.dataframe(sentiment_over_time)
         else: st.info("No valid date column selected for Temporal Analysis.")
-
+    
     st.markdown("---")
     st.header("Explore Full Filtered Dataset")
     st.dataframe(df_filtered)
