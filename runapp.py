@@ -204,7 +204,7 @@ if st.session_state.df_enriched is not None:
     
     st.header("Detailed Analysis Dashboard")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Sentiment Breakdown", "🗣️ Topic Analysis", "🏛️ Political Analysis", "📈 Temporal Analysis"])
+    tab1, tab2, tab3 = st.tabs(["📊 Sentiment Breakdown", "🏛️ Political Analysis", "📈 Temporal Analysis"])
 
     with tab1:
         st.subheader("Sentiment & Demographic Distribution")
@@ -235,20 +235,6 @@ if st.session_state.df_enriched is not None:
                 st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        st.subheader("Top Topics Discussed")
-        if 'primary_topic' in df.columns and 'sentiment_score' in df.columns:
-            topic_sentiment = df.groupby('primary_topic').agg(
-                comment_count=('primary_topic', 'count'),
-                avg_sentiment=('sentiment_score', 'mean')
-            ).sort_values(by='comment_count', ascending=False).reset_index()
-            fig = px.bar(topic_sentiment.head(15), x='primary_topic', y='comment_count', color='avg_sentiment',
-                         color_continuous_scale=px.colors.diverging.RdYlGn, range_color=[-1,1],
-                         title="Top 15 Topics by Mention Count (Colored by Average Sentiment)",
-                         labels={'primary_topic': 'Topic', 'comment_count': 'Number of Comments', 'avg_sentiment': 'Avg. Sentiment'})
-            fig.update_layout(xaxis_title="Topic", yaxis_title="Number of Comments")
-            st.plotly_chart(fig, use_container_width=True)
-
-    with tab3:
         st.subheader("Political Entity Analysis")
         if 'mentioned_entities' in df.columns and 'sentiment_score' in df.columns:
             df_entities = df.explode('mentioned_entities').dropna(subset=['mentioned_entities'])
@@ -280,18 +266,21 @@ if st.session_state.df_enriched is not None:
         else:
             st.warning("Mentioned Entities column not found for Political Analysis.")
 
-    with tab4:
-        st.subheader("Temporal Analysis: Trends, Events, and Anomalies")
+    with tab3:
+        st.subheader("Temporal Analysis: Trends and Anomalies")
         
         if datetime_column and datetime_column in df.columns and pd.api.types.is_datetime64_any_dtype(df[datetime_column]):
             df_time = df.set_index(datetime_column).sort_index()
             
-            st.markdown("#### Real-Time Trend Detection (Volume Spikes)")
+            st.markdown("#### Trend Detection (Volume Spikes)")
+            st.write("This chart identifies dates with unusually high discussion volume, indicating significant events.")
+            
             daily_volume = df_time.resample('D').size().to_frame('comment_volume')
             volume_mean = daily_volume['comment_volume'].mean()
             volume_std = daily_volume['comment_volume'].std()
             anomaly_threshold = volume_mean + (2 * volume_std)
             anomalous_days = daily_volume[daily_volume['comment_volume'] > anomaly_threshold]
+
             fig_anomaly = go.Figure()
             fig_anomaly.add_trace(go.Scatter(x=daily_volume.index, y=daily_volume['comment_volume'], mode='lines', name='Daily Volume'))
             fig_anomaly.add_trace(go.Scatter(x=anomalous_days.index, y=anomalous_days['comment_volume'], mode='markers', 
@@ -299,55 +288,13 @@ if st.session_state.df_enriched is not None:
             fig_anomaly.update_layout(title="Daily Discussion Volume with Anomaly Detection",
                                       xaxis_title="Date", yaxis_title="Number of Comments")
             st.plotly_chart(fig_anomaly, use_container_width=True)
+
             if not anomalous_days.empty:
                 st.write("Potential Key Event Dates (High Volume):")
                 st.dataframe(anomalous_days)
 
-            st.markdown("---")
-            st.markdown("#### Event Impact Tracking")
-            
-            available_dates = sorted(df_time.index.normalize().unique())
-            event_date_selection = st.selectbox(
-                "Select an Event Date to Analyze:",
-                options=available_dates,
-                index=len(available_dates)//2,
-                format_func=lambda date: date.strftime('%Y-%m-%d')
-            )
-            days_window = st.slider("Select Time Window (in days) before/after event:", 1, 30, 7)
-            
-            if event_date_selection:
-                # This is a tz-aware Pandas Timestamp
-                event_dt = event_date_selection 
-                
-                # Slicing tz-aware index with tz-aware timestamps
-                start_of_before_period = event_dt - pd.Timedelta(days=days_window)
-                end_of_before_period = event_dt - pd.Timedelta(seconds=1)
-                
-                before_period = df_time[start_of_before_period : end_of_before_period]
-                after_period = df_time[event_dt : event_dt + pd.Timedelta(days=days_window)]
-                
-                sentiment_before = before_period['sentiment_score'].mean() if not before_period.empty else 0
-                sentiment_after = after_period['sentiment_score'].mean() if not after_period.empty else 0
-                
-                col1, col2 = st.columns(2)
-                col1.metric(f"{days_window}-Day Avg. Sentiment BEFORE Event", f"{sentiment_before:.3f}")
-                col2.metric(f"{days_window}-Day Avg. Sentiment AFTER Event", f"{sentiment_after:.3f}", delta=f"{sentiment_after - sentiment_before:.3f}")
+            # The "Event Impact Tracking" feature has been removed to prevent errors.
 
-                combined_period_df = pd.concat([before_period, after_period])
-
-                if not combined_period_df.empty:
-                    # For plotting, it's safest to convert the index to naive time
-                    sentiment_shift_df = combined_period_df.resample('D')['sentiment_score'].mean().to_frame('average_sentiment')
-                    sentiment_shift_df.index = sentiment_shift_df.index.tz_localize(None)
-                    
-                    fig_impact = px.line(sentiment_shift_df, x=sentiment_shift_df.index, y='average_sentiment',
-                                         title=f"Sentiment Shift Around {event_date_selection.strftime('%Y-%m-%d')}", markers=True)
-                    
-                    # Also use a naive datetime for the vline
-                    fig_impact.add_vline(x=event_dt.tz_localize(None), line_width=3, line_dash="dash", line_color="red", annotation_text="Event Date")
-                    
-                    fig_impact.update_layout(yaxis=dict(range=[-1,1]))
-                    st.plotly_chart(fig_impact, use_container_width=True)
         else:
             st.info("No valid date/timestamp column was selected to perform Temporal Analysis.")
     
