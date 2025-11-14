@@ -103,9 +103,4 @@ Follow these steps to get the project running locally.
     ```
     The React app will open in your browser at `http://localhost:3000`.
 
-## How to Use the Demo
-
-1.  The dashboard will automatically load and display the data for the "Sabah Election" topic, which includes a few pre-analyzed ("completed") comments.
-2.  You will see that some metrics are populated, but others may be low.
-3.  Click the **"Analyze New Comments"** button. The backend will process the sample "pending" comments.
-4.  After the analysis is complete, the dashboard will automatically refresh and display the newly analyzed data, and all the charts will update.
+## Just a sample of Sentiment Analysis Dashboard
