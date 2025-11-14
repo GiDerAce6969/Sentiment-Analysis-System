@@ -1,0 +1,14 @@
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+cd backend
+cd frontend
+
+pip install -r requirements.txt (run in backend)
+
+uvicorn main:app --reload (run backend system)
+npm start                 (run frontend system)
+
+
+
+
